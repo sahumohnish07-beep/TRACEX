@@ -1,0 +1,35 @@
+name: TRACE-X Backend CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  lint-and-validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r trace-x-backend/api/requirements.txt
+          pip install ruff pytest
+
+      - name: Lint with Ruff
+        run: |
+          ruff check trace-x-backend/api
+
+      - name: Validate Docker Compose Config
+        run: |
+          cd trace-x-backend
+          docker compose config --quiet

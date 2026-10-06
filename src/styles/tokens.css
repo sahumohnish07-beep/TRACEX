@@ -1,0 +1,60 @@
+:root {
+  /* Authentication & Global App Palette */
+  --bg-page: #F4F6F9;
+  --bg-surface: #FFFFFF;
+  --primary: #1F2A6B;
+  --primary-hover: #17205A;
+  --primary-subtle: #E8EBF7;
+  --accent: #2F5FD0;
+  --text: #1E2430;
+  --text-muted: #5A6475;
+  --border: #DDE2EA;
+
+  /* Status Tokens (always paired with icon + text) */
+  --status-success: #1E7B4F;
+  --status-success-bg: #E8F5EE;
+  --status-warning: #A35B00;
+  --status-warning-bg: #FFF4E5;
+  --status-danger: #B42318;
+  --status-danger-bg: #FEF3F2;
+  --status-info: #2F5FD0;
+  --status-info-bg: #EEF4FD;
+  --status-neutral: #5A6475;
+  --status-neutral-bg: #F0F2F5;
+
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Dimensions & Spacing (8px grid) */
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-5: 40px;
+  --space-6: 48px;
+
+  --header-height: 72px;
+  --sidebar-width: 260px;
+  --max-content-width: 1440px;
+
+  /* Radius & Shadows */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --shadow-subtle: 0 1px 2px rgba(16, 24, 40, 0.05);
+
+  /* Focus Indicator */
+  --focus-outline: 3px solid var(--accent);
+  --focus-offset: 2px;
+
+  /* Scoped Landing Page Tokens */
+  --landing-bg: #FFFFFF;
+  --landing-bg-alt: #F7F9FC;
+  --landing-line: rgba(31, 42, 107, 0.10);
+  --landing-line-active: rgba(31, 42, 107, 0.28);
+  --landing-node: #4A5A9E;
+  --landing-text-trace: #1E2430;
+  --landing-text-x: #1F2A6B;
+  --landing-desc: #2F5FD0;
+  --landing-text-muted: #5A6475;
+}

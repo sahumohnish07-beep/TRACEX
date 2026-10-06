@@ -1,0 +1,314 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tracex-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-tracex_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tracex_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - tracex-net
+
+  neo4j:
+    image: neo4j:5.19-community
+    container_name: tracex-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${NEO4J_AUTH:-neo4j/tracex_graph_2026}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+      NEO4J_dbms_security_procedures_allowlist: apoc.*
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_apoc_import_file_use__neo4j__config: "true"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    expose:
+      - "7474"
+      - "7687"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 25s
+    networks:
+      - tracex-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: tracex-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - tracex-net
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: tracex-keycloak
+    restart: unless-stopped
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin_secure_2026}
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_RELATIVE_PATH: "/"
+    volumes:
+      - ./infra/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    expose:
+      - "8080"
+    networks:
+      - tracex-net
+
+  # HashiCorp Vault Server (Production File Storage Backend with Documented Unseal)
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: tracex-vault
+    restart: unless-stopped
+    command: server
+    environment:
+      VAULT_ADDR: "http://127.0.0.1:8200"
+    volumes:
+      - ./infra/vault/vault-config.hcl:/vault/config/vault-config.hcl:ro
+      - vault_data:/vault/file
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    networks:
+      - tracex-net
+
+  # Vault Agent Sidecar: Authenticates via AppRole and dynamically renders application secrets
+  vault-agent:
+    image: hashicorp/vault:1.15
+    container_name: tracex-vault-agent
+    restart: unless-stopped
+    command: vault agent -config=/vault/config/vault-agent.hcl
+    volumes:
+      - ./infra/vault/vault-agent.hcl:/vault/config/vault-agent.hcl:ro
+      - ./infra/vault/templates:/vault/templates:ro
+      - ./infra/vault/creds:/vault/creds:ro
+      - vault_secrets:/vault/secrets
+    depends_on:
+      - vault
+    networks:
+      - tracex-net
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: tracex-api
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./api:/app
+      - ./migrations:/app/migrations
+      - ./migrations/alembic.ini:/app/alembic.ini
+      - vault_secrets:/vault/secrets:ro
+    expose:
+      - "8000"
+    environment:
+      POSTGRES_SERVER: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-tracex_db}
+      KEYCLOAK_SERVER_URL: http://keycloak:8080
+      KEYCLOAK_REALM: tracex
+      VAULT_URL: http://vault:8200
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault-agent:
+        condition: service_started
+    networks:
+      - tracex-net
+
+  celery-worker:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: tracex-celery-worker
+    restart: unless-stopped
+    command: celery -A app.core.celery_app worker --loglevel=info
+    volumes:
+      - ./api:/app
+      - vault_secrets:/vault/secrets:ro
+    environment:
+      POSTGRES_SERVER: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-tracex_db}
+      KEYCLOAK_SERVER_URL: http://keycloak:8080
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      vault-agent:
+        condition: service_started
+    networks:
+      - tracex-net
+
+  celery-beat:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: tracex-celery-beat
+    restart: unless-stopped
+    command: celery -A app.core.celery_app beat --loglevel=info
+    volumes:
+      - ./api:/app
+      - vault_secrets:/vault/secrets:ro
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+      vault-agent:
+        condition: service_started
+    networks:
+      - tracex-net
+
+  flower:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: tracex-flower
+    restart: unless-stopped
+    command: celery -A app.core.celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - tracex-net
+
+  # NGINX Hardened TLS Termination & Reverse Proxy
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: tracex-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/certs:/etc/nginx/certs:ro
+      - ../dist:/usr/share/nginx/html:ro
+    depends_on:
+      - api
+      - keycloak
+    networks:
+      - tracex-net
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: tracex-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - tracex-net
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: tracex-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-tracex_db}?sslmode=disable"
+    expose:
+      - "9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - tracex-net
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.58.0
+    container_name: tracex-redis-exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+    expose:
+      - "9121"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - tracex-net
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: tracex-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin_secure_2026}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - tracex-net
+
+networks:
+  tracex-net:
+    name: tracex-net
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: tracex_postgres_data
+  neo4j_data:
+    name: tracex_neo4j_data
+  neo4j_logs:
+    name: tracex_neo4j_logs
+  redis_data:
+    name: tracex_redis_data
+  prometheus_data:
+    name: tracex_prometheus_data
+  grafana_data:
+    name: tracex_grafana_data
+  vault_data:
+    name: tracex_vault_data
+  vault_secrets:
+    name: tracex_vault_secrets
