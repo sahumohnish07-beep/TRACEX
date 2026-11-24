@@ -1,0 +1,211 @@
+name: TRACE-X Continuous Delivery (CD)
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_API: ghcr.io/${{ github.repository }}/api
+  IMAGE_WORKER: ghcr.io/${{ github.repository }}/celery-worker
+  IMAGE_FRONTEND: ghcr.io/${{ github.repository }}/frontend
+
+jobs:
+  # =========================================================================
+  # 1. Build and Push Multi-Component Container Images to GHCR
+  # =========================================================================
+  build-and-push:
+    name: Build & Push Images to GHCR
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+      short_sha: ${{ steps.vars.outputs.short_sha }}
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute Build Metadata and Tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.IMAGE_API }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,format=short,prefix=sha-
+
+      - name: Extract Short SHA
+        id: vars
+        run: echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      # 1. TRACE-X Core API Container
+      - name: Build and Push TRACE-X API Image
+        uses: docker/build-push-action@v5
+        with:
+          context: trace-x-backend/api
+          file: trace-x-backend/api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_API }}:latest
+            ${{ env.IMAGE_API }}:${{ steps.vars.outputs.short_sha }}
+            ${{ github.ref_type == 'tag' && format('{0}:{1}', env.IMAGE_API, github.ref_name) || '' }}
+
+      # 2. TRACE-X Celery Worker Container
+      - name: Build and Push TRACE-X Celery Worker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: trace-x-backend/api
+          file: trace-x-backend/api/Dockerfile.celery
+          push: true
+          tags: |
+            ${{ env.IMAGE_WORKER }}:latest
+            ${{ env.IMAGE_WORKER }}:${{ steps.vars.outputs.short_sha }}
+            ${{ github.ref_type == 'tag' && format('{0}:{1}', env.IMAGE_WORKER, github.ref_name) || '' }}
+
+      # 3. TRACE-X React Frontend Container
+      - name: Build and Push TRACE-X Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.frontend
+          push: true
+          tags: |
+            ${{ env.IMAGE_FRONTEND }}:latest
+            ${{ env.IMAGE_FRONTEND }}:${{ steps.vars.outputs.short_sha }}
+            ${{ github.ref_type == 'tag' && format('{0}:{1}', env.IMAGE_FRONTEND, github.ref_name) || '' }}
+
+  # =========================================================================
+  # 2. Database Schema Migrations (Controlled Review Step)
+  # =========================================================================
+  migrate-database:
+    name: Run Alembic Database Migrations
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://tracex.police.gov.in
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Migration Tooling
+        run: |
+          pip install alembic sqlalchemy psycopg2-binary pydantic-settings
+
+      - name: Execute Controlled Alembic Upgrade
+        env:
+          POSTGRES_SERVER: ${{ secrets.PROD_DB_HOST }}
+          POSTGRES_PORT: ${{ secrets.PROD_DB_PORT || '5432' }}
+          POSTGRES_USER: ${{ secrets.PROD_DB_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.PROD_DB_NAME || 'tracex_db' }}
+        run: |
+          echo "Starting controlled Alembic migration to 'head'..."
+          cd trace-x-backend/migrations
+          # If target DB is unreachable in dry-run/mock CI environment, validate SQL generation
+          if [ -z "$POSTGRES_SERVER" ]; then
+            echo "PROD_DB_HOST not provided; generating migration offline SQL plan..."
+            alembic upgrade head --sql || true
+          else
+            alembic upgrade head
+          fi
+
+  # =========================================================================
+  # 3. Deploy Stack (Parameterizable Target: Docker Compose / Kubernetes)
+  # =========================================================================
+  deploy:
+    name: Deploy to Production Target
+    needs: [build-and-push, migrate-database]
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://tracex.police.gov.in
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Deploy to Remote Police Station / Datacenter Host
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.short_sha }}
+        run: |
+          echo "========================================================="
+          echo "Deploying TRACE-X Release SHA: $IMAGE_TAG"
+          echo "Target Architecture: Docker Compose Hardened Host / K8s"
+          echo "========================================================="
+
+          if [ -n "$DEPLOY_HOST" ] && [ -n "$SSH_PRIVATE_KEY" ]; then
+            mkdir -p ~/.ssh
+            echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+            chmod 600 ~/.ssh/id_rsa
+            ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+            # SSH command updating images and restarting services gracefully
+            ssh "$DEPLOY_USER@$DEPLOY_HOST" "bash -s" << EOF
+              export IMAGE_TAG="$IMAGE_TAG"
+              cd /opt/tracex
+              docker compose pull
+              docker compose up -d --remove-orphans
+              docker compose ps
+            EOF
+          else
+            echo "No SSH target specified. Parameterized deployment pipeline assumed self-hosted runner or cloud GitOps agent."
+            echo "Deployment step simulation completed for image tag $IMAGE_TAG."
+          fi
+
+  # =========================================================================
+  # 4. Sentry Release Tracking & Source Map Registration
+  # =========================================================================
+  sentry-release:
+    name: Create Sentry Release & Associate Commits
+    needs: [build-and-push, deploy]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create Sentry Release
+        uses: getsentry/action-release@v1
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        with:
+          environment: production
+          version: "tracex@${{ needs.build-and-push.outputs.short_sha }}"
+          sourcemaps: "./dist"
+        continue-on-error: true

@@ -1,0 +1,54 @@
+groups:
+  - name: tracex_api_alerts
+    rules:
+      - alert: APIErrorRateSpike
+        expr: (sum(rate(tracex_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(tracex_http_requests_total[5m])), 0.001)) * 100 > 5
+        for: 2m
+        labels:
+          severity: critical
+          tier: api
+          owner: backend-platform
+        annotations:
+          summary: "API 5xx Server Error Rate Spike"
+          description: "TRACE-X FastAPI server error rate is {{ $value | printf \"%.2f\" }}% (> 5% threshold over 5m). Urgent investigation required."
+
+      - alert: AuthFailureSpike
+        expr: sum(rate(tracex_http_requests_total{handler=~".*auth.*",status=~"401|403"}[5m])) * 60 > 10
+        for: 1m
+        labels:
+          severity: warning
+          tier: security
+          owner: sec-ops
+        annotations:
+          summary: "Authentication Failure Spike on Landing -> /login Flow"
+          description: "Detected {{ $value | printf \"%.1f\" }} auth rejections/minute targeting authentication routes. Potential credential stuffing or brute-force attack."
+
+  - name: tracex_celery_alerts
+    rules:
+      - alert: CeleryBacklogGrowth
+        expr: sum(rate(tracex_celery_task_runs_total{status="FAILURE"}[5m])) > 0.1 or sum(rate(tracex_celery_task_runs_total{task_name="score_missing_links",status="FAILURE"}[5m])) > 0
+        for: 3m
+        labels:
+          severity: warning
+          tier: worker
+          owner: ml-ops
+        annotations:
+          summary: "Celery Task Failure / Backlog Accumulation"
+          description: "Background task score_missing_links or async ingestion tasks are failing at {{ $value | printf \"%.2f\" }} errors/second."
+
+  - name: tracex_ml_model_alerts
+    rules:
+      - alert: MLEvidenceStrengthDistributionDrift
+        expr: tracex_ml_drift_alert_gauge == 1 or abs(tracex_ml_evidence_strength_ratio{evidence_strength="Strong"} - 0.125) > 0.0625
+        for: 5m
+        labels:
+          severity: critical
+          tier: ml
+          owner: lead-data-scientist
+        annotations:
+          summary: "ML Isolation Forest Evidence-Strength Distribution Drift Detected"
+          description: >
+            Primary early-warning alert: Isolation Forest Strong-ratio has shifted significantly from its modest ~12.5% baseline
+            (current ratio: {{ $value | printf "%.3f" }}). Because TRACE-X operates on unlabeled real-world law enforcement networks
+            without ground-truth feedback, evidence-strength distribution shift is the sole indicator that topological feature drift
+            or entity resolution corruption has degraded the model's already-modest discriminative lift.

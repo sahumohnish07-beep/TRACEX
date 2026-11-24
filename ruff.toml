@@ -1,0 +1,37 @@
+# ==============================================================================
+# TRACE-X Ruff Linter Configuration
+# ==============================================================================
+target-version = "py311"
+line-length = 120
+
+exclude = [
+    ".git",
+    "node_modules",
+    "dist",
+    ".pytest_cache",
+    ".mypy_cache",
+    "TRACEX",
+]
+
+[lint]
+select = [
+    "E",
+    "F",
+    "W",
+]
+
+ignore = [
+    "E501",  # Line length handled dynamically
+    "F401",  # Module imports (re-exports / model registration in __init__ / tests)
+    "F841",  # Unused local variables in ML benchmarks/evaluations
+    "E722",  # Do not use bare 'except'
+    "E741",  # Ambiguous variable name
+    "F811",  # Redefinition of unused name (fixtures / mock overloads)
+    "E402",  # Module level import not at top of file (sys.path manipulations)
+    "F821",  # Undefined name in forward references
+    "F403",  # Star imports in legacy modules
+    "F405",  # Star import usage
+    "F541",  # f-string without placeholders
+    "W291",  # Trailing whitespace
+    "W293",  # Blank line contains whitespace
+]

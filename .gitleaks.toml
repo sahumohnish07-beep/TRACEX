@@ -1,0 +1,32 @@
+# ==============================================================================
+# TRACE-X Gitleaks Configuration
+# Defines allowlists strictly for local development demo credentials & templates.
+# All real secrets, certificates, and production credentials remain strictly gated.
+# ==============================================================================
+
+[allowlist]
+description = "Allowlist for known local development mock credentials and environment templates"
+
+# Specific file paths that are allowed to contain development placeholders
+paths = [
+    # Keycloak local development seed containing mock test officer accounts
+    '''^infra/keycloak/realm-export\.json$''',
+    # Example environment variable templates showing required keys to developers
+    '''^\.env\.example$''',
+    '''^trace-x-backend/\.env\.example$'''
+]
+
+# Specific mock credentials and template placeholders allowed during CI scanning
+regexes = [
+    # Mock officer password for local Keycloak development realm
+    '''StationPass2026!''',
+    # Local docker development database passwords with explicit change warning
+    '''postgres_change_in_production''',
+    '''tracex_graph_2026_change_in_production''',
+    '''admin_secure_2026_change_in_production''',
+    # Local dev-mode Vault and Keycloak client secrets
+    '''tracex-dev-root-token-change_in_production''',
+    '''tracex-api-secret-key-change_in_production''',
+    # Sentry public DSN placeholder format
+    '''placeholder_key@sentry\.io/placeholder_project'''
+]

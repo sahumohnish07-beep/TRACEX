@@ -1,0 +1,349 @@
+{
+  "id": "tracex",
+  "realm": "tracex",
+  "displayName": "TRACE-X Criminal Investigation Platform",
+  "displayNameHtml": "<div class=\"kc-logo-text\"><span>TRACE-X</span> Security Portal</div>",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "waitIncrementSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "maxDeltaTimeSeconds": 43200,
+  "failureFactor": 5,
+  "roles": {
+    "realm": [
+      {
+        "id": "role-local-authority",
+        "name": "local-authority",
+        "description": "Local Police Station Level Investigation Clearance"
+      },
+      {
+        "id": "role-state-authority",
+        "name": "state-authority",
+        "description": "State Police Headquarters & CID Special Crime Wing Access"
+      },
+      {
+        "id": "role-central-authority",
+        "name": "central-authority",
+        "description": "National / Federal Intelligence & Narcotics Control Access"
+      },
+      {
+        "id": "role-investigator",
+        "name": "investigator",
+        "description": "Investigating Officer (IO) dossier read/write permissions"
+      },
+      {
+        "id": "role-supervisor",
+        "name": "supervisor",
+        "description": "Station House Officer (SHO) operational sign-off and review"
+      },
+      {
+        "id": "role-admin",
+        "name": "admin",
+        "description": "Technical Administrator & Audit Officer"
+      }
+    ],
+    "client": {
+      "tracex-frontend": [
+        {
+          "name": "local-authority",
+          "description": "Local authority client role"
+        },
+        {
+          "name": "state-authority",
+          "description": "State authority client role"
+        },
+        {
+          "name": "central-authority",
+          "description": "Central authority client role"
+        },
+        {
+          "name": "investigator",
+          "description": "Case investigator"
+        },
+        {
+          "name": "supervisor",
+          "description": "Station supervisor"
+        },
+        {
+          "name": "admin",
+          "description": "Platform administrator"
+        }
+      ]
+    }
+  },
+  "clients": [
+    {
+      "clientId": "tracex-frontend",
+      "name": "TRACE-X Frontend Web Application",
+      "description": "Single-Page Application using Authorization Code + PKCE",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect",
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*##http://localhost:80/*##http://localhost/*",
+        "access.token.lifespan": "900",
+        "client.session.idle.timeout": "1800",
+        "client.session.max.lifespan": "28800"
+      },
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "http://127.0.0.1:5173/*",
+        "http://localhost:3000/*",
+        "http://localhost:80/*",
+        "http://localhost/*"
+      ],
+      "webOrigins": [
+        "+",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost"
+      ],
+      "protocolMappers": [
+        {
+          "name": "authority_id-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "authority_id",
+            "claim.name": "authority_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "authority_tier-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "authority_tier",
+            "claim.name": "authority_tier",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "badge_number-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "badgeNumber",
+            "claim.name": "badge_number",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "station-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "station",
+            "claim.name": "station",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "client-roles-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "client.id": "tracex-frontend",
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "multivalued": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "tracex-api",
+      "name": "TRACE-X Backend API Service",
+      "enabled": true,
+      "bearerOnly": true,
+      "protocol": "openid-connect"
+    }
+  ],
+  "requiredActions": [
+    {
+      "alias": "webauthn-register",
+      "name": "Webauthn Register",
+      "providerId": "webauthn-register",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 50
+    },
+    {
+      "alias": "UPDATE_PASSWORD",
+      "name": "Update Password",
+      "providerId": "UPDATE_PASSWORD",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 30
+    }
+  ],
+  "browserFlow": "browser",
+  "authenticationFlows": [
+    {
+      "id": "flow-browser",
+      "alias": "browser",
+      "description": "Standard browser flow with WebAuthn security key step",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": true,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-cookie",
+          "requirement": "ALTERNATIVE",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        },
+        {
+          "authenticator": "auth-spnego",
+          "requirement": "DISABLED",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        },
+        {
+          "authenticator": "identity-provider-redirector",
+          "requirement": "ALTERNATIVE",
+          "priority": 25,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        },
+        {
+          "requirement": "ALTERNATIVE",
+          "priority": 30,
+          "flowAlias": "forms",
+          "userSetupAllowed": false,
+          "autheticatorFlow": true
+        }
+      ]
+    },
+    {
+      "id": "flow-forms",
+      "alias": "forms",
+      "description": "Username, password and optional WebAuthn security key",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": true,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-username-password-form",
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        },
+        {
+          "authenticator": "webauthn-authenticator",
+          "requirement": "CONDITIONAL",
+          "priority": 20,
+          "userSetupAllowed": true,
+          "autheticatorFlow": false
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "officer_vikram",
+      "email": "v.deshmukh@police.local",
+      "firstName": "Vikram",
+      "lastName": "Deshmukh",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "StationPass2026!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "local-authority",
+        "investigator"
+      ],
+      "clientRoles": {
+        "tracex-frontend": [
+          "local-authority",
+          "investigator"
+        ]
+      },
+      "attributes": {
+        "authority_id": ["auth-local-zone3"],
+        "authority_tier": ["LOCAL"],
+        "badgeNumber": ["MH-POL-4412"],
+        "station": ["Central Division Police Station, Zone 3"],
+        "clearanceLevel": ["LEVEL_2_LOCAL"]
+      },
+      "requiredActions": [
+        "webauthn-register"
+      ]
+    },
+    {
+      "username": "sho_rathore",
+      "email": "arvind.rathore@police.local",
+      "firstName": "Arvind",
+      "lastName": "Rathore",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "StationPass2026!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "local-authority",
+        "supervisor"
+      ],
+      "clientRoles": {
+        "tracex-frontend": [
+          "local-authority",
+          "supervisor"
+        ]
+      },
+      "attributes": {
+        "authority_id": ["auth-local-zone3"],
+        "authority_tier": ["LOCAL"],
+        "badgeNumber": ["MH-POL-1002"],
+        "station": ["Central Division Police Station, Zone 3"],
+        "clearanceLevel": ["LEVEL_3_SHO"]
+      }
+    }
+  ]
+}
